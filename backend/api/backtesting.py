@@ -3,7 +3,7 @@ import numpy as np
 from backend.api.market_data import get_historical_prices, calculate_z_score
 
 def backtest_mean_reversion(
-    token_id="solana", 
+    token_id="bitcoin", 
     initial_balance=10000, 
     z_threshold=1.0, 
     days=90, 
@@ -74,6 +74,6 @@ def backtest_mean_reversion(
     print(f"Final Balance: ${balance:.2f} | Net Profit: ${balance - initial_balance:.2f}")
 
 if __name__ == "__main__":
-    token_id = "solana"  
+    token_id = "bitcoin"  
     print(token_id)
     backtest_mean_reversion(token_id)

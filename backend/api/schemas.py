@@ -15,7 +15,7 @@ class TradeResponse(TradeBase):
     user_id: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class UserBase(BaseModel):
@@ -32,4 +32,4 @@ class UserResponse(UserBase):
     trades: List[TradeResponse] = []
 
     class Config:
-        orm_mode = True
+        from_attributes = True

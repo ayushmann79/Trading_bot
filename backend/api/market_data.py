@@ -1,110 +1,113 @@
-from sqlalchemy.orm import Session
-from database.db_setup import SessionLocal
-from database.models import MarketData
 import requests
-import pandas as pd
-import numpy as np
-from scipy.stats import zscore
+import os
+import asyncio
+from web3 import Web3
+from fastapi import APIRouter
+from dotenv import load_dotenv
+from database.db_setup import SessionLocal
+from database.models import Trade
 
-# CoinGecko API URL
-COINGECKO_API_URL = "https://api.coingecko.com/api/v3/coins/{token_id}/market_chart"
+# Load environment variables
+load_dotenv()
 
-def get_historical_prices(token_id: str, days: int = 90) -> pd.DataFrame:
+# API URLs
+COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
+TOKEN_PRICE_API_URL = "https://api.coingecko.com/api/v3/simple/price"
+
+# Load API keys
+ALCHEMY_API_URL = os.getenv("ALCHEMY_API_URL")
+WALLET_ADDRESS = os.getenv("WALLET_ADDRESS")
+
+# FastAPI Router
+router = APIRouter()
+
+# Connect to Ethereum
+w3 = Web3(Web3.HTTPProvider(ALCHEMY_API_URL))
+
+
+def get_token_contract(token_name: str, network="ethereum") -> str:
     """
-    Fetch historical token prices from CoinGecko.
-    :param token_id: Token ID (e.g., 'tether' for USDT).
-    :param days: Number of days of historical data.
-    :return: DataFrame with timestamps and prices.
+    Fetch the contract address of a token from CoinGecko.
     """
-    params = {
-        "vs_currency": "usd",
-        "days": days,
-        "interval": "daily"
-    }
-    
+    url = f"{COINGECKO_API_URL}/coins/{token_name.lower()}"
+
     try:
-        response = requests.get(COINGECKO_API_URL.format(token_id=token_id), params=params)
-        response.raise_for_status()  # Raise error for bad responses (4xx, 5xx)
+        response = requests.get(url)
+        response.raise_for_status()
         data = response.json()
-    except requests.RequestException as e:
-        print(f"Error fetching market data: {e}")
-        return pd.DataFrame()
 
-    prices = data.get("prices", [])
-    if not prices:
-        print("No price data found.")
-        return pd.DataFrame()
+        if "platforms" in data and network in data["platforms"]:
+            return data["platforms"][network]
 
-    df = pd.DataFrame(prices, columns=["timestamp", "price"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+        print(f"❌ Token '{token_name}' not found on {network}.")
+        return None
 
-    # Debugging Output: Print last 10 prices
-    print("Latest Market Data:")
-    print(df.tail(10))
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error fetching contract address: {e}")
+        return None
 
-    return df
 
-def save_market_data(token_id: str, df: pd.DataFrame):
-    """
-    Save historical market data into the database efficiently.
-    """
-    if df.empty:
-        print("No data to save.")
-        return
-
-    db: Session = SessionLocal()
+def get_wallet_balance():
+    """Fetch ETH balance of the wallet."""
     try:
-        market_entries = [
-            MarketData(token_id=token_id, timestamp=row["timestamp"], price=row["price"])
-            for _, row in df.iterrows()
-        ]
-        db.bulk_save_objects(market_entries)  # Efficient batch insert
-        db.commit()
-        print(f"Market data saved for {token_id}")
+        balance = w3.eth.get_balance(WALLET_ADDRESS)
+        return {"wallet": WALLET_ADDRESS, "balance": w3.from_wei(balance, 'ether')}
     except Exception as e:
-        db.rollback()
-        print(f"Database error: {e}")
-    finally:
-        db.close()
+        return {"error": f"Failed to fetch wallet balance: {str(e)}"}
 
-def calculate_z_score(df: pd.DataFrame) -> pd.Series:
+
+@router.get("/portfolio")
+async def portfolio():
+    """API route to fetch ETH balance of the wallet."""
+    return get_wallet_balance()
+
+
+@router.get("/contract/{token_name}")
+async def token_contract(token_name: str):
+    """API route to fetch a token's contract address."""
+    contract_address = get_token_contract(token_name)
+    if contract_address:
+        return {"token": token_name, "contract_address": contract_address}
+    return {"error": f"Token '{token_name}' not found."}
+
+
+@router.get("/prices/{token_ids}")
+async def get_token_price(token_ids: str):
     """
-    Compute Z-score for Mean Reversion strategy.
-    :param df: DataFrame with historical prices.
-    :return: Full series of Z-score values.
+    API route to fetch real-time token prices from CoinGecko.
+    Supports multiple token IDs separated by commas.
     """
-    if len(df) < 20:
-        print("Not enough data for Z-score calculation.")
-        return pd.Series([0] * len(df))  # Return zero values
+    params = {"ids": token_ids, "vs_currencies": "usd"}
+    response = requests.get(TOKEN_PRICE_API_URL, params=params)
 
-    df["Z-score"] = zscore(df["price"].astype(float), nan_policy='omit')  # Convert to float & handle NaNs
+    if response.status_code == 200:
+        return response.json()
+    return {"error": "Failed to fetch price"}
 
-    # Debugging Output: Print last 10 Z-scores
-    print("Latest Z-score Data:")
-    print(df[["timestamp", "price", "Z-score"]].tail(10))
 
-    return df["Z-score"]
+@router.get("/trades")
+async def get_trade_history():
+    """Fetch all past trade history."""
+    db = SessionLocal()
+    trades = db.query(Trade).all()
+    db.close()
 
-def fetch_market_data(token_id: str, days: int = 90) -> pd.DataFrame:
-    """
-    Wrapper function to fetch historical market data.
-    :param token_id: Token ID (e.g., 'tether' for USDT).
-    :param days: Number of days of historical data.
-    :return: DataFrame with timestamps and prices.
-    """
-    return get_historical_prices(token_id, days)
+    return [{"id": t.id, "token": t.token, "amount": t.amount, "price": t.price, "timestamp": t.timestamp} for t in trades]
+
+
+# ✅ Fixed: Fetch prices for multiple tokens
+async def run_tests():
+    print(get_token_contract("tether"))  # Example: Get USDT contract address
+    print(get_wallet_balance())  # Example: Get wallet balance
+
+    # ✅ Fetch multiple token prices (Bitcoin, Ethereum, Solana)
+    token_prices = await get_token_price("bitcoin,ethereum,solana")
+    print(token_prices)
+
+    # ✅ Fetch trade history
+    trade_history = await get_trade_history()
+    print(trade_history)
+
 
 if __name__ == "__main__":
-    token_id = "tether"  # Example: USDT token ID on CoinGecko
-    
-    # Fetch and save market data
-    df = get_historical_prices(token_id)
-    
-    if not df.empty:
-        save_market_data(token_id, df)
-        
-        # Calculate Z-score for Mean Reversion
-        z_score = calculate_z_score(df)
-        print(f"Latest Z-score for {token_id}: {z_score.iloc[-1]:.2f}")
-    else:
-        print("Failed to fetch token price data.")
+    asyncio.run(run_tests())  # ✅ Properly await async functions
