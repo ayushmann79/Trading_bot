@@ -1,9 +1,11 @@
 import os
 import json
+import time
 from web3 import Web3
 from eth_account import Account
 from dotenv import load_dotenv
 from backend.api.market_data import get_token_contract
+from backend.api.ai_model import predict_price  # AI Model Integration
 
 # Load environment variables
 load_dotenv()
@@ -90,6 +92,38 @@ def swap_token_for_token(amount_eth, token_in, token_out):
     print(f"🔗 Transaction Hash: {tx_hash.hex()}")
     print(f"📌 View on Sepolia: https://sepolia.etherscan.io/tx/{tx_hash.hex()}")
 
+def ai_auto_trade(token_id="ethereum", amount_eth=0.01):
+    """
+    AI-powered auto-trading on Uniswap.
+    :param token_id: Token to trade.
+    :param amount_eth: Amount of ETH to trade.
+    """
+    print(f"🔍 Checking AI prediction for {token_id}...")
+
+    predicted_price = predict_price(token_id)
+    if predicted_price is None:
+        print("⚠️ AI prediction failed! Skipping trade.")
+        return
+
+    print(f"📈 AI Predicted Price for {token_id}: ${predicted_price:.2f}")
+
+    # Get current price
+    current_price = requests.get(f"https://api.coingecko.com/api/v3/simple/price?ids={token_id}&vs_currencies=usd").json()[token_id]["usd"]
+
+    print(f"🔹 Current Price: ${current_price:.2f}")
+
+    # AI Trading Logic
+    if predicted_price > current_price * 1.02:  # If AI predicts 2% increase
+        print(f"✅ AI suggests BUY {token_id} with {amount_eth} ETH!")
+        swap_token_for_token(amount_eth, "weth", token_id)
+    elif predicted_price < current_price * 0.98:  # If AI predicts 2% decrease
+        print(f"🚨 AI suggests SELL {token_id} for ETH!")
+        swap_token_for_token(amount_eth, token_id, "weth")
+    else:
+        print("🟡 AI suggests HOLD. No trade executed.")
+
 if __name__ == "__main__":
-    # Example: Swap 0.01 ETH → DAI
-    swap_token_for_token(0.01, "weth", "dai")
+    # Run AI Auto-Trade every 60 seconds
+    while True:
+        ai_auto_trade("ethereum", 0.01)  # Example: Trade ETH <-> USDT
+        time.sleep(60)

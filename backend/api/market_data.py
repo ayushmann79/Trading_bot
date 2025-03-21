@@ -6,13 +6,13 @@ from fastapi import APIRouter
 from dotenv import load_dotenv
 from database.db_setup import SessionLocal
 from database.models import Trade
-
+from backend.api.ai_model import predict_price
 # Load environment variables
 load_dotenv()
 
 # API URLs
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
-TOKEN_PRICE_API_URL = "https://api.coingecko.com/api/v3/simple/price"
+TOKEN_PRICE_API_URL = f"{COINGECKO_API_URL}/simple/price"
 
 # Load API keys
 ALCHEMY_API_URL = os.getenv("ALCHEMY_API_URL")
@@ -26,9 +26,7 @@ w3 = Web3(Web3.HTTPProvider(ALCHEMY_API_URL))
 
 
 def get_token_contract(token_name: str, network="ethereum") -> str:
-    """
-    Fetch the contract address of a token from CoinGecko.
-    """
+    """Fetch the contract address of a token from CoinGecko."""
     url = f"{COINGECKO_API_URL}/coins/{token_name.lower()}"
 
     try:
@@ -39,47 +37,34 @@ def get_token_contract(token_name: str, network="ethereum") -> str:
         if "platforms" in data and network in data["platforms"]:
             return data["platforms"][network]
 
-        print(f"❌ Token '{token_name}' not found on {network}.")
         return None
-
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error fetching contract address: {e}")
         return None
 
 
-def get_wallet_balance():
+@router.get("/portfolio")
+async def portfolio():
     """Fetch ETH balance of the wallet."""
     try:
         balance = w3.eth.get_balance(WALLET_ADDRESS)
         return {"wallet": WALLET_ADDRESS, "balance": w3.from_wei(balance, 'ether')}
     except Exception as e:
-        return {"error": f"Failed to fetch wallet balance: {str(e)}"}
-
-
-@router.get("/portfolio")
-async def portfolio():
-    """API route to fetch ETH balance of the wallet."""
-    return get_wallet_balance()
+        return {"error": str(e)}
 
 
 @router.get("/contract/{token_name}")
 async def token_contract(token_name: str):
-    """API route to fetch a token's contract address."""
+    """Fetch a token's contract address."""
     contract_address = get_token_contract(token_name)
-    if contract_address:
-        return {"token": token_name, "contract_address": contract_address}
-    return {"error": f"Token '{token_name}' not found."}
+    return {"token": token_name, "contract_address": contract_address} if contract_address else {"error": "Token not found"}
 
 
 @router.get("/prices/{token_ids}")
 async def get_token_price(token_ids: str):
-    """
-    API route to fetch real-time token prices from CoinGecko.
-    Supports multiple token IDs separated by commas.
-    """
+    """Fetch real-time token prices from CoinGecko."""
     params = {"ids": token_ids, "vs_currencies": "usd"}
     response = requests.get(TOKEN_PRICE_API_URL, params=params)
-
+    
     if response.status_code == 200:
         return response.json()
     return {"error": "Failed to fetch price"}
@@ -87,27 +72,23 @@ async def get_token_price(token_ids: str):
 
 @router.get("/trades")
 async def get_trade_history():
-    """Fetch all past trade history."""
+    """Fetch all past trade history from the database."""
     db = SessionLocal()
     trades = db.query(Trade).all()
     db.close()
-
     return [{"id": t.id, "token": t.token, "amount": t.amount, "price": t.price, "timestamp": t.timestamp} for t in trades]
 
 
-# ✅ Fixed: Fetch prices for multiple tokens
+@router.get("/ai-predict/{token_id}")
+async def ai_price_prediction(token_id: str):
+    """Predict next-day price using AI."""
+    predicted_price = predict_price(token_id)
+    return {"token": token_id, "predicted_price": predicted_price} if predicted_price else {"error": "Prediction failed"}
+
+
+# ✅ Automated Testing of AI Prediction API
 async def run_tests():
-    print(get_token_contract("tether"))  # Example: Get USDT contract address
-    print(get_wallet_balance())  # Example: Get wallet balance
-
-    # ✅ Fetch multiple token prices (Bitcoin, Ethereum, Solana)
-    token_prices = await get_token_price("bitcoin,ethereum,solana")
-    print(token_prices)
-
-    # ✅ Fetch trade history
-    trade_history = await get_trade_history()
-    print(trade_history)
-
+    print(await ai_price_prediction("ethereum"))
 
 if __name__ == "__main__":
-    asyncio.run(run_tests())  # ✅ Properly await async functions
+    asyncio.run(run_tests())

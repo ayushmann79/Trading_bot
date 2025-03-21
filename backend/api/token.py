@@ -1,41 +1,75 @@
 from fastapi import APIRouter, HTTPException
 import requests
 import logging
+import time
 
 router = APIRouter()
 
 COINGECKO_API = "https://api.coingecko.com/api/v3"
+DEFAULT_TOKEN = "avalanche-2"  # ✅ Default to AVAX
+
+SUPPORTED_CHAINS = {
+    "ethereum": 1,
+    "avalanche": 43114,
+    "sepolia": 11155111,
+    "avalanche-fuji": 43113,
+}
+
+def fetch_token_data(token_id: str, retries=3, delay=2):
+    """
+    Fetch token data from CoinGecko with retry mechanism.
+    """
+    url = f"{COINGECKO_API}/coins/{token_id}"
+    
+    for attempt in range(retries):
+        try:
+            response = requests.get(url)
+            
+            # ✅ Handle rate limits
+            if response.status_code == 429:
+                logging.warning(f"Rate limit exceeded. Retrying in {delay} seconds...")
+                time.sleep(delay)
+                continue  # Retry
+            
+            data = response.json()
+
+            # ✅ Handle invalid tokens
+            if response.status_code != 200 or "error" in data:
+                logging.warning(f"Token {token_id} not found.")
+                return None
+            
+            return data
+        
+        except requests.RequestException as e:
+            logging.error(f"Error fetching token info: {e}")
+            time.sleep(delay)
+    
+    return None  # Final failure
 
 @router.get("/token-info/{token_id}")
 def get_token_info(token_id: str):
     """
-    Fetch detailed token info from CoinGecko.
-    Default token: AVAX (Avalanche) if not found.
+    Fetch token info from CoinGecko.
+    ✅ Defaults to AVAX if the token is not found.
     """
-    url = f"{COINGECKO_API}/coins/{token_id}"
-    try:
-        response = requests.get(url)
-        data = response.json()
+    data = fetch_token_data(token_id) or fetch_token_data(DEFAULT_TOKEN)
 
-        if response.status_code != 200 or "error" in data:
-            logging.warning(f"Token {token_id} not found, using AVAX as default.")
-            response = requests.get(f"{COINGECKO_API}/coins/avalanche-2")
-            data = response.json()
+    if not data:
+        return {"error": f"Token '{token_id}' not found"}
 
-        return {
-            "name": data.get("name", "Unknown"),
-            "symbol": data.get("symbol", "").upper(),
-            "image": data["image"].get("large", ""),
-            "website": data["links"].get("homepage", [""])[0],
-            "socials": {
-                "twitter": data["links"].get("twitter_screen_name", ""),
-                "reddit": data["links"].get("subreddit_url", ""),
-            },
-            "fdv": data["market_data"].get("fully_diluted_valuation", {}).get("usd", None),
-            "max_supply": data["market_data"].get("max_supply", None),
-            "market_cap": data["market_data"].get("market_cap", {}).get("usd", None),
-        }
+    chain_id = SUPPORTED_CHAINS.get(data.get("asset_platform_id", "unknown"), None)
 
-    except requests.RequestException as e:
-        logging.error(f"Error fetching token info: {e}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+    return {
+        "name": data.get("name", "Unknown"),
+        "symbol": data.get("symbol", "").upper(),
+        "image": data.get("image", {}).get("large", ""),
+        "website": data.get("links", {}).get("homepage", [""])[0] if "links" in data else "",
+        "socials": {
+            "twitter": data.get("links", {}).get("twitter_screen_name", "") if "links" in data else "",
+            "reddit": data.get("links", {}).get("subreddit_url", "") if "links" in data else "",
+        },
+        "fdv": data.get("market_data", {}).get("fully_diluted_valuation", {}).get("usd", None),
+        "max_supply": data.get("market_data", {}).get("max_supply", None),
+        "market_cap": data.get("market_data", {}).get("market_cap", {}).get("usd", None),
+        "chain_id": chain_id,
+    }
