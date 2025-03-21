@@ -134,4 +134,14 @@ If you find this project useful, **give it a star** ⭐ on GitHub!
 
 ---
 
-🔥 **Trading Hacker Bot - Trade Smarter, Faster & Better!** 🔥
+🔥 **Trading Hacker Bot - Trade Smarter, Faster & Better! SnapShots During Development** 🔥
+
+Here are some snapshots of the project:  
+
+![Web Page](SnapShots/01.png)  
+![Wallet Connect Options](SnapShots/02.png)  
+![Connect wallet with Phantom](SnapShots/03.png)  
+![Connect wallet with MetaMask](SnapShots/04.png)  
+![Search Bar](SnapShots/05.png)  
+![Trading view , As balance was not available so Insufficient Balance 😏](SnapShots/06.png)  
+![1 Month chart with AI Predicted Price](SnapShots/07.png) 
