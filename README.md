@@ -1,6 +1,5 @@
 ### README.md  
 
-```markdown
 # ⚡ Trading Hacker Bot  
 
 ## 📌 Introduction  
@@ -87,14 +86,13 @@ GET /api/ai-predict/{tokenId}
 }
 ```
 
----
 
 ## 🛠️ Setup & Installation  
 
 ### 1️⃣ Clone the Repository  
 ```bash
 git clone https://github.com/RSKKSOFFICIAL/Trading_bot.git
-cd trading-hacker-bot
+cd Trading_bot
 ```
 
 ### 2️⃣ Install Dependencies  
@@ -137,4 +135,3 @@ If you find this project useful, **give it a star** ⭐ on GitHub!
 ---
 
 🔥 **Trading Hacker Bot - Trade Smarter, Faster & Better!** 🔥
-```
