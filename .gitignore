@@ -10,8 +10,6 @@ Thumbs.db
 *.log
 
 # Environment Secrets
-.env
-.env.local
 .env*
 
 # Compiled Files
